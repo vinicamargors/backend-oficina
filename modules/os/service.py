@@ -1,0 +1,125 @@
+from fastapi import HTTPException
+from core.database import supabase
+from datetime import datetime
+from .schemas import OSCreate, OSUpdate, OSItemCreate
+from core.audit import salvar_audit_log
+
+def recalcular_totais_os(os_id: str):
+    """Mão invisível que ajusta o faturamento da OS automaticamente"""
+    itens = supabase.table("os_itens").select("*").eq("os_id", os_id).execute().data
+    
+    total_pecas = sum(i["quantidade"] * i["venda_unitario"] for i in itens if i["tipo"] in ["PECA", "TERCEIRIZADO"])
+    total_mao_obra = sum(i["quantidade"] * i["venda_unitario"] for i in itens if i["tipo"] == "MAO_OBRA")
+    
+    custo_total = sum(i["quantidade"] * i["custo_unitario"] for i in itens)
+    venda_total = total_pecas + total_mao_obra
+    lucro = venda_total - custo_total
+
+    supabase.table("ordens_servico").update({
+        "total_pecas": total_pecas,
+        "total_mao_obra": total_mao_obra,
+        "total_geral": venda_total,
+        "lucro_estimado": lucro
+    }).eq("id", os_id).execute()
+
+def criar_os(dados: OSCreate):
+    # Regra 1: Evitar fraude/duplicidade de OS em orçamento pro mesmo carro
+    os_aberta = supabase.table("ordens_servico").select("id").eq("veiculo_id", str(dados.veiculo_id)).eq("status", "ORCAMENTO").eq("empresa_id", str(dados.empresa_id)).execute()
+    if os_aberta.data:
+        raise HTTPException(status_code=409, detail="Este veículo já possui um orçamento aberto na oficina.")
+
+    # Regra 2: Atualizar o KM do carro se o informado for maior
+    if dados.km_atual:
+        veiculo = supabase.table("veiculos").select("km_atual").eq("id", str(dados.veiculo_id)).execute().data[0]
+        if not veiculo.get("km_atual") or dados.km_atual > veiculo["km_atual"]:
+            supabase.table("veiculos").update({"km_atual": dados.km_atual}).eq("id", str(dados.veiculo_id)).execute()
+
+    response = supabase.table("ordens_servico").insert(dados.model_dump(mode='json')).execute()
+    nova_os = response.data[0]
+    salvar_audit_log("ordens_servico", "INSERT", nova_os["id"], dados.empresa_id, antes=None, depois=nova_os)
+    return nova_os
+
+def atualizar_os(os_id: str, empresa_id: str, dados: OSUpdate):
+    os_atual = supabase.table("ordens_servico").select("*").eq("id", os_id).eq("empresa_id", empresa_id).execute().data[0]
+    campos = dados.model_dump(exclude_unset=True, mode='json')
+    
+    if not campos:
+        return os_atual
+
+    # Regra de negócio: Bateu o martelo, registra a data de fechamento
+    if "status" in campos and campos["status"] in ["FINALIZADO", "PAGO"] and not os_atual.get("data_fechamento"):
+        campos["data_fechamento"] = datetime.now().isoformat()
+
+    response = supabase.table("ordens_servico").update(campos).eq("id", os_id).execute()
+    os_nova = response.data[0]
+    salvar_audit_log("ordens_servico", "UPDATE", os_id, empresa_id, antes=os_atual, depois=os_nova)
+    return os_nova
+
+def adicionar_item(os_id: str, empresa_id: str, item: OSItemCreate):
+    # Se a peça vem do estoque, o mercado cobra a conta: tem que ter saldo.
+    if item.estoque_id:
+        estoque = supabase.table("estoque").select("*").eq("id", str(item.estoque_id)).eq("empresa_id", empresa_id).execute().data[0]
+        if estoque["quantidade"] < item.quantidade:
+            raise HTTPException(status_code=400, detail=f"Estoque insuficiente. Saldo atual: {estoque['quantidade']}")
+        
+        # Dá baixa no estoque
+        supabase.table("estoque").update({"quantidade": estoque["quantidade"] - item.quantidade}).eq("id", str(item.estoque_id)).execute()
+
+    dados_item = item.model_dump(mode='json')
+    dados_item.update({"os_id": os_id, "empresa_id": empresa_id})
+    
+    response = supabase.table("os_itens").insert(dados_item).execute()
+    recalcular_totais_os(os_id)
+    return response.data[0]
+
+def remover_item(os_id: str, item_id: str, empresa_id: str):
+    item = supabase.table("os_itens").select("*").eq("id", item_id).eq("empresa_id", empresa_id).execute().data
+    if not item:
+        raise HTTPException(status_code=404, detail="Item não encontrado.")
+    item = item[0]
+
+    # Estorno de propriedade: Devolve pro estoque se saiu de lá
+    if item.get("estoque_id"):
+        estoque = supabase.table("estoque").select("quantidade").eq("id", item["estoque_id"]).execute().data[0]
+        supabase.table("estoque").update({"quantidade": estoque["quantidade"] + item["quantidade"]}).eq("id", item["estoque_id"]).execute()
+
+    supabase.table("os_itens").delete().eq("id", item_id).execute()
+    recalcular_totais_os(os_id)
+    return {"status": "sucesso", "detail": "Item removido e estornado (se aplicável)."}
+
+def deletar_os(os_id: str, empresa_id: str):
+    # Antes de queimar o arquivo, devolve as peças pro estoque
+    itens = supabase.table("os_itens").select("id").eq("os_id", os_id).eq("empresa_id", empresa_id).execute().data
+    for i in itens:
+        remover_item(os_id, i["id"], empresa_id)
+
+    os_atual = supabase.table("ordens_servico").select("*").eq("id", os_id).execute().data[0]
+    supabase.table("ordens_servico").delete().eq("id", os_id).execute()
+    salvar_audit_log("ordens_servico", "DELETE", os_id, empresa_id, antes=os_atual, depois=None)
+    return {"status": "sucesso", "detail": "OS cancelada e estoque restaurado."}
+
+def obter_dossie_impressao(os_id: str, empresa_id: str):
+    # O Supabase traz a OS e já faz o JOIN com clientes, veiculos e usuarios(mecânico)
+    response_os = supabase.table("ordens_servico").select(
+        "*, clientes(nome, telefone, cpf_cnpj, endereco), veiculos(placa, modelo, marca, cor, ano, chassi, km_atual), usuarios(nome)"
+    ).eq("id", os_id).eq("empresa_id", empresa_id).execute()
+
+    if not response_os.data:
+        raise HTTPException(status_code=404, detail="Ordem de Serviço não encontrada.")
+    
+    ordem_completa = response_os.data[0]
+
+    # Busca os itens da nota
+    itens = supabase.table("os_itens").select("*").eq("os_id", os_id).execute().data
+
+    # Busca os dados da matriz (oficina) para sair no cabeçalho da impressão
+    empresa = supabase.table("empresas").select(
+        "nome_fantasia, razao_social, cnpj, telefone, email, endereco"
+    ).eq("id", empresa_id).execute().data
+
+    # Retorna o pacote completo pronto para a gráfica do Frontend
+    return {
+        "ordem": ordem_completa,
+        "itens": itens,
+        "empresa": empresa[0] if empresa else {}
+    }
