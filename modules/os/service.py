@@ -64,7 +64,9 @@ def recalcular_totais_os(os_id: str):
     total_pecas = sum(i["quantidade"] * i["venda_unitario"] for i in itens if i["tipo"] in ["PECA", "TERCEIRIZADO"])
     total_mao_obra = sum(i["quantidade"] * i["venda_unitario"] for i in itens if i["tipo"] == "MAO_OBRA")
     
-    custo_total = sum(i["quantidade"] * i["custo_unitario"] for i in itens)
+    # REGRA CAPITALISTA: Mão de obra é puro suor, não tem custo de mercadoria! (Ignoramos o custo dela)
+    custo_total = sum(i["quantidade"] * i["custo_unitario"] for i in itens if i["tipo"] != "MAO_OBRA")
+    
     venda_total = total_pecas + total_mao_obra
     lucro = venda_total - custo_total
 
