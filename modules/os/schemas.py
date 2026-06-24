@@ -36,5 +36,12 @@ class OSListResponse(BaseModel):
     status: str
     data_abertura: str
     total_geral: float
+    descricao_problema: Optional[str] = None
     clientes: Optional[Dict[str, Any]] = None
     veiculos: Optional[Dict[str, Any]] = None
+
+class OSPaginatedResponse(BaseModel):
+    items: List[OSListResponse]
+    total: int
+    skip: int
+    limit: int

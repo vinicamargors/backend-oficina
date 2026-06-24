@@ -4,26 +4,30 @@ from datetime import datetime
 from .schemas import OSCreate, OSUpdate, OSItemCreate
 from core.audit import salvar_audit_log
 
+# modules/os/service.py
+
 def listar_os(empresa_id: str, status: str = None, search: str = None, skip: int = 0, limit: int = 50):
-    """O Radar do Pátio: Puxa as OS com paginação e busca pesada."""
+    """O Radar do Pátio: Puxa as OS com paginação pesada e auditoria de volume total."""
+    
+    # A Mágica: pedimos ao Supabase para contar os registros exatos (count="exact")
     query = supabase.table("ordens_servico").select(
-        "id, status, data_abertura, total_geral, descricao_problema, clientes(nome, telefone), veiculos(placa, modelo)"
+        "id, status, data_abertura, total_geral, descricao_problema, clientes(nome, telefone), veiculos(placa, modelo)",
+        count="exact" 
     ).eq("empresa_id", empresa_id)
 
     if status:
         query = query.eq("status", status.upper())
 
-    # Ordenar pelas mais recentes sempre
     query = query.order("data_abertura", desc=True)
 
-    # 1. MODO BUSCA ATIVADA (Filtro em memória)
+    # 1. MODO BUSCA ATIVADA (Filtro em memória com contagem própria)
     if search:
-        # Puxa uma margem maior para garantir que achemos o termo
-        todas_os = query.limit(1000).execute().data
+        response = query.limit(1000).execute()
+        todas_os = response.data
         termo = search.lower()
         filtradas = []
+        
         for os in todas_os:
-            # Proteção contra nulos
             clientes = os.get("clientes") or {}
             veiculos = os.get("veiculos") or {}
             
@@ -32,17 +36,26 @@ def listar_os(empresa_id: str, status: str = None, search: str = None, skip: int
             os_id = str(os.get("id", "")).lower()
             desc = str(os.get("descricao_problema", "")).lower()
             
-            # Se a string existir em qualquer um desses campos, a OS passa no filtro!
             if termo in cli_nome or termo in vei_placa or termo in os_id or termo in desc:
                 filtradas.append(os)
         
-        # Pagina o resultado do array
-        return filtradas[skip : skip + limit]
+        total_real = len(filtradas)
+        return {
+            "items": filtradas[skip : skip + limit],
+            "total": total_real,
+            "skip": skip,
+            "limit": limit
+        }
 
-    # 2. MODO LISTAGEM PADRÃO (O banco de dados pagina, custo zero de processamento)
-    # No Supabase, range(0, 49) traz 50 itens.
+    # 2. MODO LISTAGEM PADRÃO (O banco faz o trabalho pesado de contar e paginar)
     response = query.range(skip, skip + limit - 1).execute()
-    return response.data
+    
+    return {
+        "items": response.data,
+        "total": response.count or 0, # O Supabase devolve o total exato aqui
+        "skip": skip,
+        "limit": limit
+    }
 
 def recalcular_totais_os(os_id: str):
     """Mão invisível que ajusta o faturamento da OS automaticamente"""
