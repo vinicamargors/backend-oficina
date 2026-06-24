@@ -13,4 +13,4 @@ def get_dados_financeiros(empresa_id: UUID, x_cargo: str = Header(default="MECAN
             status_code=403, 
             detail="Acesso negado pelo livre mercado. Você não tem permissão para visualizar o caixa da empresa."
         )
-    return service.get_dados_financeiros(str(empresa_id))
+    return service.obter_dados_financeiros(str(empresa_id))
