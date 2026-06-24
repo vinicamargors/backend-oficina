@@ -4,6 +4,46 @@ from datetime import datetime
 from .schemas import OSCreate, OSUpdate, OSItemCreate
 from core.audit import salvar_audit_log
 
+def listar_os(empresa_id: str, status: str = None, search: str = None, skip: int = 0, limit: int = 50):
+    """O Radar do Pátio: Puxa as OS com paginação e busca pesada."""
+    query = supabase.table("ordens_servico").select(
+        "id, status, data_abertura, total_geral, descricao_problema, clientes(nome, telefone), veiculos(placa, modelo)"
+    ).eq("empresa_id", empresa_id)
+
+    if status:
+        query = query.eq("status", status.upper())
+
+    # Ordenar pelas mais recentes sempre
+    query = query.order("data_abertura", desc=True)
+
+    # 1. MODO BUSCA ATIVADA (Filtro em memória)
+    if search:
+        # Puxa uma margem maior para garantir que achemos o termo
+        todas_os = query.limit(1000).execute().data
+        termo = search.lower()
+        filtradas = []
+        for os in todas_os:
+            # Proteção contra nulos
+            clientes = os.get("clientes") or {}
+            veiculos = os.get("veiculos") or {}
+            
+            cli_nome = str(clientes.get("nome", "")).lower()
+            vei_placa = str(veiculos.get("placa", "")).lower()
+            os_id = str(os.get("id", "")).lower()
+            desc = str(os.get("descricao_problema", "")).lower()
+            
+            # Se a string existir em qualquer um desses campos, a OS passa no filtro!
+            if termo in cli_nome or termo in vei_placa or termo in os_id or termo in desc:
+                filtradas.append(os)
+        
+        # Pagina o resultado do array
+        return filtradas[skip : skip + limit]
+
+    # 2. MODO LISTAGEM PADRÃO (O banco de dados pagina, custo zero de processamento)
+    # No Supabase, range(0, 49) traz 50 itens.
+    response = query.range(skip, skip + limit - 1).execute()
+    return response.data
+
 def recalcular_totais_os(os_id: str):
     """Mão invisível que ajusta o faturamento da OS automaticamente"""
     itens = supabase.table("os_itens").select("*").eq("os_id", os_id).execute().data

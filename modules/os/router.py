@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
+from typing import Optional
 from uuid import UUID
 from . import schemas, service
 from core.security import validar_passaporte
@@ -8,6 +9,26 @@ router = APIRouter(dependencies=[Depends(validar_passaporte)])
 @router.post("/", response_model=dict)
 def criar_ordem_servico(os: schemas.OSCreate):
     return service.criar_os(os)
+
+@router.get("/")
+def listar_ordens_servico(
+    empresa_id: UUID = Query(..., description="ID da empresa (Obrigatório para isolar os dados)"),
+    status: Optional[str] = Query(None, description="Filtra por: ORCAMENTO, EXECUCAO, FINALIZADO, PAGO"),
+    search: Optional[str] = Query(None, description="Busca rápida por placa, ID ou nome do cliente"),
+    skip: int = Query(0, description="Para paginação: quantos registos pular"),
+    limit: int = Query(50, description="Limite de registos por ecrã")
+):
+    """
+    Retorna a esteira de valor da oficina. 
+    Apenas as OS da empresa informada.
+    """
+    return service.listar_os(
+        empresa_id=str(empresa_id), 
+        status=status, 
+        search=search, 
+        skip=skip, 
+        limit=limit
+    )
 
 @router.put("/{empresa_id}/{os_id}")
 def atualizar_ordem_servico(empresa_id: UUID, os_id: UUID, os: schemas.OSUpdate):

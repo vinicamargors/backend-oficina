@@ -1,8 +1,7 @@
 from pydantic import BaseModel, Field
-from typing import Optional, Literal, List, Any
+from typing import Optional, Literal, List, Any, Dict
 from uuid import UUID
 from datetime import datetime
-
 
 class OSCreate(BaseModel):
     cliente_id: UUID
@@ -31,3 +30,11 @@ class OSDossieResponse(BaseModel):
     ordem: dict  # Vai conter os dados da OS + Join do Cliente, Veículo e Mecânico
     itens: List[dict] # Lista de peças e serviços
     empresa: dict # Dados da oficina (CNPJ, endereço, etc) para o cabeçalho
+
+class OSListResponse(BaseModel):
+    id: UUID
+    status: str
+    data_abertura: str
+    total_geral: float
+    clientes: Optional[Dict[str, Any]] = None
+    veiculos: Optional[Dict[str, Any]] = None
