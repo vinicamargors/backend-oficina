@@ -11,8 +11,8 @@ def check_master(x_cargo: str):
         raise HTTPException(status_code=403, detail="Acesso negado. Apenas o Master da plataforma tem essa permissão.")
 
 @router.get("/")
-def get_empresas(empresa_id: UUID, x_cargo: str = Header(default="DONO")):
-    return service.listar_empresas(x_cargo, str(empresa_id))
+def get_empresas(empresa_id: Optional[UUID] = None, x_cargo: str = Header(default="DONO")):
+    return service.listar_empresas(x_cargo, str(empresa_id) if empresa_id else "")
 
 @router.get("/{empresa_id}/detalhes")
 def get_detalhes_empresa(empresa_id: UUID, x_cargo: str = Header(default="master")):

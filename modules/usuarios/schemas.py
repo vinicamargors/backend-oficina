@@ -20,4 +20,4 @@ class UsuarioUpdate(BaseModel):
 
 class UsuarioResponse(UsuarioBase):
     id: UUID
-    empresa_id: UUID
+    empresa_id: Optional[UUID] = None
