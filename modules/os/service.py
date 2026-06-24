@@ -46,6 +46,14 @@ def atualizar_os(os_id: str, empresa_id: str, dados: OSUpdate):
     if not campos:
         return os_atual
 
+    # REGRA ANCAP AQUI: Se a KM mudou na tela, a gente OBRIGA a tabela de veículos a atualizar!
+    if "km_atual" in campos and campos["km_atual"]:
+        veiculo_id = os_atual["veiculo_id"]
+        veiculo = supabase.table("veiculos").select("km_atual").eq("id", str(veiculo_id)).execute().data[0]
+        # Só atualiza se o KM novo for maior que o antigo (ou se antes estava zerado)
+        if not veiculo.get("km_atual") or campos["km_atual"] > veiculo["km_atual"]:
+            supabase.table("veiculos").update({"km_atual": campos["km_atual"]}).eq("id", str(veiculo_id)).execute()
+
     # Regra de negócio: Bateu o martelo, registra a data de fechamento
     if "status" in campos and campos["status"] in ["FINALIZADO", "PAGO"] and not os_atual.get("data_fechamento"):
         campos["data_fechamento"] = datetime.now().isoformat()
