@@ -148,16 +148,26 @@ def remover_item(os_id: str, item_id: str, empresa_id: str):
     recalcular_totais_os(os_id)
     return {"status": "sucesso", "detail": "Item removido e estornado (se aplicável)."}
 
-def deletar_os(os_id: str, empresa_id: str):
+def deletar_os(os_id: str, empresa_id: str, motivo_exclusao: str):
     # Antes de queimar o arquivo, devolve as peças pro estoque
     itens = supabase.table("os_itens").select("id").eq("os_id", os_id).eq("empresa_id", empresa_id).execute().data
     for i in itens:
         remover_item(os_id, i["id"], empresa_id)
 
+    # Pega a "foto" da OS como ela era antes da morte
     os_atual = supabase.table("ordens_servico").select("*").eq("id", os_id).execute().data[0]
+    
+    # INJEÇÃO CAPITALISTA: Colocamos o motivo dentro da foto para a auditoria pegar!
+    os_atual["motivo_exclusao"] = motivo_exclusao
+
+    # Executa a OS
     supabase.table("ordens_servico").delete().eq("id", os_id).execute()
+    
+    # Salva o log blindado
     salvar_audit_log("ordens_servico", "DELETE", os_id, empresa_id, antes=os_atual, depois=None)
-    return {"status": "sucesso", "detail": "OS cancelada e estoque restaurado."}
+    
+    return {"status": "sucesso", "detail": "OS cancelada, estoque restaurado e log gerado."}
+
 
 def obter_dossie_impressao(os_id: str, empresa_id: str):
     # O Supabase traz a OS e já faz o JOIN com clientes, veiculos e usuarios(mecânico)

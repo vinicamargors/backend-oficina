@@ -35,8 +35,12 @@ def atualizar_ordem_servico(empresa_id: UUID, os_id: UUID, os: schemas.OSUpdate)
     return service.atualizar_os(str(os_id), str(empresa_id), os)
 
 @router.delete("/{empresa_id}/{os_id}")
-def deletar_ordem_servico(empresa_id: UUID, os_id: UUID):
-    return service.deletar_os(str(os_id), str(empresa_id))
+def deletar_ordem_servico(
+    empresa_id: UUID, 
+    os_id: UUID, 
+    motivo_exclusao: str = Query(..., description="Motivo obrigatório para a auditoria")
+):
+    return service.deletar_os(str(os_id), str(empresa_id), motivo_exclusao)
 
 # --- Sub-rotas de Itens da OS ---
 @router.post("/{empresa_id}/{os_id}/itens")
