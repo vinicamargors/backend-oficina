@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from postgrest.exceptions import APIError               
+from core.apm import MonitoramentoAPMMiddleware
 from core.errors import supabase_exception_handler      
 from modules.clientes import router as clientes_router
 from modules.veiculos import router as veiculos_router
@@ -17,7 +18,9 @@ app = FastAPI(title="Oficina API", description="Monólito Modular focado em efic
 
 app.add_exception_handler(APIError, supabase_exception_handler)
 
+
 app.add_middleware(
+    MonitoramentoAPMMiddleware,
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
@@ -34,6 +37,8 @@ app.include_router(usuarios_router.router, prefix="/api/v1/usuarios", tags=["Usu
 app.include_router(logs_router.router, prefix="/api/v1/logs", tags=["Auditoria e Logs"])
 app.include_router(dashboards_router.router, prefix="/api/v1/dashboards", tags=["Módulo Operacional / Dashboards"])
 app.include_router(financeiro_router.router, prefix="/api/v1/financeiro", tags=["Módulo Estratégico / Financeiro"])
+
+
 
 @app.get("/")
 def read_root():
