@@ -1,8 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from postgrest.exceptions import APIError               
-from core.apm import MonitoramentoAPMMiddleware
 from core.errors import supabase_exception_handler      
+
+# --- IMPORTAÇÃO DO NOSSO ESPIÃO ---
+from core.apm import MonitoramentoAPMMiddleware
+
 from modules.clientes import router as clientes_router
 from modules.veiculos import router as veiculos_router
 from modules.os import router as os_router
@@ -13,14 +16,16 @@ from modules.logs import router as logs_router
 from modules.dashboards import router as dashboards_router
 from modules.financeiro import router as financeiro_router
 
+# --- IMPORTAÇÃO DA NOVA ROTA DO MASTER ---
+from modules.monitoramento import router as monitoramento_router
+
 app = FastAPI(title="Oficina API", description="Monólito Modular focado em eficiência")
 
-
+# Tradutor de erros do Supabase
 app.add_exception_handler(APIError, supabase_exception_handler)
 
-
+# 1. MIDDLEWARE DO CORS (Aduana de liberação do React)
 app.add_middleware(
-    MonitoramentoAPMMiddleware,
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
@@ -28,6 +33,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 2. MIDDLEWARE DO APM (Nosso espião de performance rodando silencioso)
+app.add_middleware(MonitoramentoAPMMiddleware)
+
+
+# Registro de todas as rotas (Os galpões da fábrica)
 app.include_router(clientes_router.router, prefix="/api/v1/clientes", tags=["Clientes"])
 app.include_router(veiculos_router.router, prefix="/api/v1/veiculos", tags=["Veículos"])
 app.include_router(os_router.router, prefix="/api/v1/os", tags=["Ordens de Serviço"])
@@ -38,8 +48,10 @@ app.include_router(logs_router.router, prefix="/api/v1/logs", tags=["Auditoria e
 app.include_router(dashboards_router.router, prefix="/api/v1/dashboards", tags=["Módulo Operacional / Dashboards"])
 app.include_router(financeiro_router.router, prefix="/api/v1/financeiro", tags=["Módulo Estratégico / Financeiro"])
 
+# A ROTA DO GABINETE DO MASTER
+app.include_router(monitoramento_router.router, prefix="/api/v1/monitoramento", tags=["Monitoramento APM Master"])
 
 
 @app.get("/")
 def read_root():
-    return {"status": "Motor rodando sem burocracia."}
+    return {"status": "Motor rodando livre de burocracia."}
